@@ -44,8 +44,8 @@ fungifyNeg n | n >= 0    = fungify n
 fungify n | isEasy n  = easyFungify n
           | otherwise = do
              options <- mapM fungFacs . factorizations $ n
-             let best = fst . minimumBy (comparing snd) $ options
-             fungified n best
+             let best = guaranteedMinimumOn (minRequiredMul n) snd $ options
+             fungified n (fst best)
  where
   fungFacs factorization = do
      facs <- mapM fungFac factorization
@@ -114,6 +114,16 @@ printables = filter (isPrint.toEnum.fromIntegral) [0..255]
 
 nzEasies = [1..15] ++ printables
 
+-- Assumes that its input is not isEasy
+minRequiredMul :: (Integral i, Integral d) => i -> d
+minRequiredMul n =
+   let lg = floor $ logBase (fromIntegral maxPrintable) (fromIntegral n)
+    in sum [ lg     -- nums
+           , lg - 1 -- *
+           , lg - 1 -- '
+           , if isPrime n then 2 else 0 -- + offset
+           ]
+
 safeLast' :: b -> (a -> b) -> [a] -> b
 safeLast' x _ [] = x
 safeLast' _ f xs = f (last xs)
@@ -123,6 +133,9 @@ whileL p f = takeWhile p . iterate f
 
 factorizations :: (Integral i, Integral p) => i -> [[(i,p)]]
 factorizations = map lengthGroup . plainFactorizations
+
+isPrime :: Integral i => i -> Bool
+isPrime = (==1) . lazyLength . plainFactors
 
 plainFactors :: Integral i => i -> [i]
 plainFactors 0         = [0]
@@ -139,6 +152,21 @@ lengthGroup = map (head &&& genericLength) . group
 
 lazyLength :: [a] -> Natural
 lazyLength = genericLength
+
+-- If we find a value less than or equal to the given, we abort and return the
+-- corresponding value
+--
+-- E.g. guaranteedMinimumOn 1 length (repeat "a") == "a"
+guaranteedMinimumOn :: forall a b. Ord b => b -> (a -> b) -> [a] -> a
+guaranteedMinimumOn _ _ []     = error "guaranteedMinimumOn :: []"
+guaranteedMinimumOn g f (x:xs) = let fx = f x in if fx <= g then x else go (x,fx) xs
+ where
+   go (m,_)  []     = m
+   go (m,fm) (n:ns) =
+      let fn = f n
+       in if fn < fm
+             then if fn <= g then n else go (n,fn) ns
+             else go (m,fm) ns
 
 -- All the rest is thanks to Brent Yorgey's article in The.Monad.Reader issue
 -- 8, "Generating Multiset Partitions"
