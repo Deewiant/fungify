@@ -5,9 +5,10 @@ import Control.Monad (filterM, guard)
 import Control.Monad.State.Strict (State, get, put, evalState)
 import Data.Char (intToDigit, isLatin1, isPrint)
 import Data.Function (fix)
-import Data.List (genericLength, find, group, sort)
+import Data.List (genericLength, find, group, minimumBy, sort)
 import Data.Maybe (isJust, fromJust)
-import Data.Monoid (mconcat)
+import Data.Number.Natural (Natural)
+import Data.Ord (comparing)
 import System.Environment (getArgs)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Process (readProcess)
@@ -42,9 +43,16 @@ fungifyNeg n | n >= 0    = fungify n
 
 fungify n | isEasy n  = easyFungify n
           | otherwise = do
-             s <- mapM f $ factors n
-             fungified n $ concat s ++ replicate (length s - 1) '*'
+             options <- mapM g . factorizations $ n
+             let best = fst . minimumBy (comparing snd) $ options
+             fungified n best
  where
+  g factorization = do
+     facs <- mapM f factorization
+     let s    = concat facs
+         lf   = length facs
+     return (s ++ replicate (lf - 1) '*', length s + lf - 1)
+
   f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
                  | otherwise         =
                     let y@(m,p') = splitMul x
@@ -113,6 +121,9 @@ safeLast' _ f xs = f (last xs)
 whileL :: (a -> Bool) -> (a -> a) -> a -> [a]
 whileL p f = takeWhile p . iterate f
 
+factorizations :: (Integral i, Integral p) => i -> [[(i,p)]]
+factorizations = map lengthGroup . plainFactorizations
+
 plainFactors :: Integral i => i -> [i]
 plainFactors 0         = [0]
 plainFactors n | n < 0 = -1 : plainFactors (-n)
@@ -125,3 +136,51 @@ factors = lengthGroup . plainFactors
 
 lengthGroup :: (Eq a, Integral l) => [a] -> [(a,l)]
 lengthGroup = map (head &&& genericLength) . group
+
+lazyLength :: [a] -> Natural
+lazyLength = genericLength
+
+-- All the rest is thanks to Brent Yorgey's article in The.Monad.Reader issue
+-- 8, "Generating Multiset Partitions"
+type Vec = [Int]
+data MultiSet a = MS [a] Vec deriving Show
+
+plainFactorizations :: Integral i => i -> [[i]]
+plainFactorizations = (map.map) product . partitions . plainFactors
+ where
+   partitions = map (map msToList) . mPartitions . msFromList
+
+   msFromList = uncurry MS . unzip . lengthGroup . sort
+
+   msToList (MS es cs) = concat $ zipWith replicate cs es
+
+   mPartitions (MS elts v) = map (map (MS elts)) $ vPartitions v
+
+   vPartitions v = vPart v (vUnit v)
+
+   vPart v  _ | all (==0) v = [[]]
+   vPart v vL =
+      [v] : [v':p | v' <- withinFromTo v (vHalf v) vL
+                  , p  <- vPart (zipWith (-) v v') v']
+
+   vUnit [] = []
+   vUnit [_] = [1]
+   vUnit (_:xs) = 0 : vUnit xs
+
+   vHalf :: Vec -> Vec
+   vHalf [] = []
+   vHalf (x:xs) | (even x)  = (x `quot` 2) : vHalf xs
+                | otherwise = (x `quot` 2) : xs
+
+   withinFromTo m s e | s >| m    = withinFromTo m (zipWith min m s) e
+                      | e >  s    = []
+                      | otherwise = wFT m s e True True
+    where
+      wFT [] _ _ _ _ = [[]]
+      wFT (m:ms) (s:ss) (e:es) useS useE =
+         let start = if useS then s else m
+             end = if useE then e else 0
+          in [x:xs | x  <- [start,(start-1)..end]
+                   , xs <- wFT ms ss es (useS && x==s) (useE && x==e)]
+
+      xs >| ys = and $ zipWith (>) xs ys
