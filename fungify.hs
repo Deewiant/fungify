@@ -2,6 +2,7 @@
 
 import Control.Arrow ((&&&), second, first)
 import Control.Monad (filterM, guard)
+import Control.Monad.State.Strict (State, get, put, evalState)
 import Data.Char (intToDigit, isLatin1, isPrint)
 import Data.Function (fix)
 import Data.List (genericLength, find, group, sort)
@@ -9,29 +10,46 @@ import Data.Maybe (isJust, fromJust)
 import Data.Monoid (mconcat)
 import System.Environment (getArgs)
 
-import qualified Data.ListTrie.Patricia.Set.Ord as TS
-import Data.ListTrie.Patricia.Set.Ord (TrieSet)
+import qualified Data.Map as M
+import Data.Map (Map)
+
+type Fungifier i = i -> State (Map i String) String
+
+runFungifier :: Fungifier i -> i -> String
+runFungifier f n = evalState (f n) M.empty
+
+fungified :: Integral i => i -> String -> State (Map i String) String
+fungified n s = do
+   m <- get
+   case M.lookup n m of
+        Just s' -> return s'
+        Nothing -> do
+           put $ M.insert n s m
+           return s
 
 main :: IO ()
-main = getArgs >>= mapM_ (putStrLn . fungifyNeg . read)
+main = getArgs >>= mapM_ (putStrLn . runFungifier fungifyNeg . read)
 
-fungifyNeg, fungify, naiveFungify :: Integral i => i -> String
-fungifyNeg n | n < 0     = concat ["0", fungify (-n), "-"]
-             | otherwise = fungify n
+fungifyNeg, fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
+fungifyNeg n | n >= 0    = fungify n
+             | otherwise = do
+                f <- fungify (-n)
+                fungified n $ concat ["0", f, "-"]
 
 fungify n | isEasy n  = easyFungify n
-          | otherwise = let s = map f $ factors n
-                         in concat s ++ replicate (length s - 1) '*'
+          | otherwise = do
+             s <- mapM f $ factors n
+             fungified n $ concat s ++ replicate (length s - 1) '*'
  where
   f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
                  | otherwise         =
                     let y@(m,p') = splitMul x
                      in if y == x
                            then naiveFungifyWith fungify (m^p)
-                           else concat [ fungify m
-                                       , fungify (factor^p')
-                                       , "*"
-                                       ]
+                           else do
+                              fm <- fungify m
+                              ff <- fungify (factor ^ p')
+                              fungified n $ concat [fm, ff, "*"]
 
 splitMul :: Integral i => (i,i) -> (i,i)
 splitMul x@(factor,_) =
@@ -41,28 +59,31 @@ splitMul x@(factor,_) =
 
 naiveFungify = fix naiveFungifyWith
 
-naiveFungifyWith :: Integral i => (i -> String) -> i -> String
+naiveFungifyWith :: Integral i => Fungifier i -> Fungifier i
 naiveFungifyWith f n
    | isEasy n  = easyFungify n
-   | otherwise =
-      concat $
-         case fromJust.fromJust . find isJust $
-                 [ findSum isTrivial easies
-                 , findSum isEasy    easies
-                 , Just (Left maxPrintable)
-                 ] of
-              Left  e -> [f (n-e), f e, "+"]
-              Right e -> [f (n+e), f e, "-"]
+   | otherwise = do
+      let s = case fromJust.fromJust . find isJust $
+                       [ findSum isTrivial easies
+                       , findSum isEasy    easies
+                       , Just (Left maxPrintable)
+                       ] of
+                    Left  e -> [f (n-e), f e, return "+"]
+                    Right e -> [f (n+e), f e, return "-"]
+
+      ms <- sequence s
+      fungified n $ concat ms
+
  where
    findSum p (e:es) | p (n+e)   = Just $ Right e
                     | p (n-e)   = Just $ Left e
                     | otherwise = findSum p es
    findSum _ [] = Nothing
 
-easyFungify :: Integral i => i -> String
-easyFungify n | n < 16                  = [intToDigit $ fromIntegral n]
-              | isLatin1 c && isPrint c = ['\'', c]
-              | otherwise               = error "easyFungify :: not easy"
+easyFungify n
+   | n < 16                  = fungified n [intToDigit $ fromIntegral n]
+   | isLatin1 c && isPrint c = fungified n ['\'', c]
+   | otherwise               = error "easyFungify :: not easy"
  where
    c = toEnum . fromIntegral $ n
 
