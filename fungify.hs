@@ -8,8 +8,9 @@ import Data.Function (fix)
 import Data.List (genericLength, find, group, sort)
 import Data.Maybe (isJust, fromJust)
 import Data.Monoid (mconcat)
-import NumberTheory.Sieve.ONeill (primes)
 import System.Environment (getArgs)
+import System.IO.Unsafe (unsafePerformIO)
+import System.Process (readProcess)
 
 import qualified Data.Map as M
 import Data.Map (Map)
@@ -113,15 +114,11 @@ whileL :: (a -> Bool) -> (a -> a) -> a -> [a]
 whileL p f = takeWhile p . iterate f
 
 plainFactors :: Integral i => i -> [i]
-plainFactors 1 = []
-plainFactors n = f primes n
- where
-   f l@(p:ps) x
-      | p*p > x   = [x]
-      | r == 0    = p : f l q
-      | otherwise = f ps x
-    where
-      (q,r) = x `quotRem` p
+plainFactors 0         = [0]
+plainFactors n | n < 0 = -1 : plainFactors (-n)
+plainFactors n         = unsafePerformIO $ do
+   fs <- readProcess "factor" [show n] ""
+   return (map (fromIntegral.(read :: String->Integer)) . tail . words $ fs)
 
 factors :: (Integral i, Integral p) => i -> [(i,p)]
 factors = lengthGroup . plainFactors
