@@ -57,7 +57,7 @@ fungify n | isEasy n  = easyFungify n
 
 applySafeMuls :: Integral i => (i,i) -> (i,i)
 applySafeMuls x@(factor,_) =
-  safeLast' x (second pred) $ whileL (\(n,p) -> n <= 15 && p > 1)
+  safeLast' x (second pred) $ whileL (\(n,p) -> n <= maxEasy && p > 1)
                                      (\(n,p) -> (factor*n, p-1))
                                      x
 
@@ -67,13 +67,13 @@ naiveFungifyWith :: Integral i => Fungifier i -> Fungifier i
 naiveFungifyWith f n
    | isEasy n  = easyFungify n
    | otherwise = do
-      let s = case fromJust.fromJust . find isJust $
-                       [ findSum isTrivial easies
-                       , findSum isEasy    easies
-                       , Just (Left maxPrintable)
-                       ] of
-                    Left  e -> [f (n-e), f e, return "+"]
-                    Right e -> [f (n+e), f e, return "-"]
+      let opts = [ findSum isTrivial easies
+                 , findSum isEasy    easies
+                 , Just (Left maxEasy)
+                 ]
+          s = case fromJust.fromJust . find isJust $ opts of
+                   Left  e -> [f (n-e), f e, return "+"]
+                   Right e -> [f (n+e), f e, return "-"]
 
       ms <- sequence s
       fungified n $ concat ms
@@ -98,13 +98,13 @@ isEasy    n = n >= 0 && (n < 16 || (n <= m && isLatin1 c && isPrint c))
    m = fromIntegral $ fromEnum (maxBound :: Char)
    c = toEnum . fromIntegral $ n
 
-maxPrintable :: Integral i => i
-maxPrintable = last printables
-
 printables, easies :: Integral i => [i]
 printables = filter (isPrint.toEnum.fromIntegral) [0..255]
 
 easies = [0..15] ++ printables
+
+maxEasy :: Integral i => i
+maxEasy = 255 -- last nzEasies
 
 safeLast' :: b -> (a -> b) -> [a] -> b
 safeLast' x _ [] = x
