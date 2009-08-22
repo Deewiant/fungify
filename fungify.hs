@@ -1,19 +1,26 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-import Control.Arrow ((&&&), second, first)
-import Control.Monad (filterM, guard)
+import Control.Arrow ((&&&), second)
+import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (evaluate, catch, SomeException)
 import Control.Monad.State.Strict (State, get, put, evalState)
 import Data.Char (intToDigit, isLatin1, isPrint)
 import Data.Function (fix)
-import Data.List (genericLength, find, group, sort)
-import Data.Maybe (isJust, fromJust)
-import Data.Monoid (mconcat)
+import Data.List (genericLength, find, group, maximumBy)
+import Data.Maybe (isJust, fromJust, catMaybes)
+import Data.Ord (comparing)
 import System.Environment (getArgs)
+import System.IO (hGetContents, hClose)
 import System.IO.Unsafe (unsafePerformIO)
-import System.Process (readProcess)
+import System.Process ( createProcess, proc, std_out, StdStream(CreatePipe)
+                      , waitForProcess, terminateProcess
+                      )
+import Test.ChasingBottoms.TimeOut (timeOutMicro', Result(Value))
 
 import qualified Data.Map as M
 import Data.Map (Map)
+
+import Prelude hiding (catch)
 
 type Fungifier i = i -> State (Map i String) String
 
@@ -69,8 +76,11 @@ naiveFungifyWith f n
    | otherwise = do
       let opts = [ findSum isTrivial nzEasies
                  , findSum isEasy    nzEasies
-                 , Just (Left maxEasy)
+                 , case catMaybes . map (tryFacCount.(n-)) $ nzEasiesRev of
+                        [] -> Just . Left $ maxEasy
+                        xs -> Just . Left . fst $ maximumBy (comparing snd) xs
                  ]
+
           s = case fromJust.fromJust . find isJust $ opts of
                    Left  e -> [f (n-e), f e, return "+"]
                    Right e -> [f (n+e), f e, return "-"]
@@ -79,6 +89,11 @@ naiveFungifyWith f n
       fungified n $ concat ms
 
  where
+   tryFacCount x =
+      case unsafePerformIO . timeOutMicro' 5000 . length . plainFactors $ x of
+           Value v -> Just (x, v)
+           _       -> Nothing
+
    findSum p (e:es) | p (n+e)   = Just $ Right e
                     | p (n-e)   = Just $ Left e
                     | otherwise = findSum p es
@@ -98,8 +113,9 @@ isEasy    n = n >= 0 && (n < 16 || (n <= m && isLatin1 c && isPrint c))
    m = fromIntegral $ fromEnum (maxBound :: Char)
    c = toEnum . fromIntegral $ n
 
-nzEasies :: Integral i => [i]
-nzEasies = [1..15] ++ filter (isPrint.toEnum.fromIntegral) [16..255]
+nzEasies, nzEasiesRev :: Integral i => [i]
+nzEasies    = [1..15] ++ filter (isPrint.toEnum.fromIntegral) [16..255]
+nzEasiesRev = reverse nzEasies
 
 maxEasy :: Integral i => i
 maxEasy = 255 -- last nzEasies
@@ -111,12 +127,21 @@ safeLast' _ f xs = f (last xs)
 whileL :: (a -> Bool) -> (a -> a) -> a -> [a]
 whileL p f = takeWhile p . iterate f
 
-plainFactors :: Integral i => i -> [i]
+plainFactors :: forall i. Integral i => i -> [i]
 plainFactors 0         = [0]
 plainFactors n | n < 0 = -1 : plainFactors (-n)
 plainFactors n         = unsafePerformIO $ do
-   fs <- readProcess "factor" [show n] ""
-   return (map (fromIntegral.(read :: String->Integer)) . tail . words $ fs)
+   (_, Just out, _, pid) <-
+      createProcess (proc "factor" [show n]){ std_out = CreatePipe }
+   (do fs <- hGetContents out
+       mv <- newEmptyMVar
+       forkIO $ evaluate (length fs) >> putMVar mv ()
+       takeMVar mv
+       hClose out
+       waitForProcess pid
+       return (map ((fromIntegral::Integer->i).read) . tail . words $ fs))
+    `catch`
+      (\(_ :: SomeException) -> terminateProcess pid >> return undefined)
 
 factors :: (Integral i, Integral p) => i -> [(i,p)]
 factors = lengthGroup . plainFactors
