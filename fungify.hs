@@ -3,6 +3,7 @@
 import Control.Arrow ((&&&), second, first)
 import Control.Monad (filterM, guard)
 import Data.Char (intToDigit, isLatin1, isPrint)
+import Data.Function (fix)
 import Data.List (genericLength, find, group, sort)
 import Data.Maybe (isJust, fromJust)
 import Data.Monoid (mconcat)
@@ -23,7 +24,7 @@ fungify n | isEasy n  = easyFungify n
                  | otherwise         =
                     let y@(m,p') = splitMul x
                      in if y == x
-                           then naiveFungify (m^p)
+                           then naiveFungifyWith fungify (m^p)
                            else concat [ fungify m
                                        , fungify (factor^p')
                                        , "*"
@@ -36,16 +37,20 @@ splitMul x@(factor,_) =
                                      x
 
 naiveFungify :: Integral i => i -> String
-naiveFungify n | isEasy n  = easyFungify n
-               | otherwise =
-                  concat $
-                    case fromJust.fromJust . find isJust $
-                            [ findSum isTrivial easies
-                            , findSum isEasy    easies
-                            , Just (Left maxPrintable)
-                            ] of
-                         Left  e -> [naiveFungify (n-e), naiveFungify e, "+"]
-                         Right e -> [naiveFungify (n+e), naiveFungify e, "-"]
+naiveFungify = fix naiveFungifyWith
+
+naiveFungifyWith :: Integral i => (i -> String) -> i -> String
+naiveFungifyWith f n
+   | isEasy n  = easyFungify n
+   | otherwise =
+      concat $
+         case fromJust.fromJust . find isJust $
+                 [ findSum isTrivial easies
+                 , findSum isEasy    easies
+                 , Just (Left maxPrintable)
+                 ] of
+              Left  e -> [f (n-e), f e, "+"]
+              Right e -> [f (n+e), f e, "-"]
  where
    findSum p (e:es) | p (n+e)   = Just $ Right e
                     | p (n-e)   = Just $ Left e
