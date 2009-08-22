@@ -43,25 +43,26 @@ fungifyNeg n | n >= 0    = fungify n
 
 fungify n | isEasy n  = easyFungify n
           | otherwise = do
-             options <- mapM g . factorizations $ n
+             options <- mapM fungFacs . factorizations $ n
              let best = fst . minimumBy (comparing snd) $ options
              fungified n best
  where
-  g factorization = do
-     facs <- mapM f factorization
+  fungFacs factorization = do
+     facs <- mapM fungFac factorization
      let s    = concat facs
          lf   = length facs
      return (s ++ replicate (lf - 1) '*', length s + lf - 1)
 
-  f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
-                 | otherwise         =
-                    let y@(m,p') = splitMul x
-                     in if y == x
-                           then naiveFungifyWith fungify (m^p)
-                           else do
-                              fm <- fungify m
-                              ff <- fungify (factor ^ p')
-                              fungified n $ concat [fm, ff, "*"]
+  fungFac x@(factor,p)
+     | isEasy (factor^p) = easyFungify (factor^p)
+     | otherwise         =
+        let y@(m,p') = splitMul x
+         in if y == x
+               then naiveFungifyWith fungify (m^p)
+               else do
+                  fm <- fungify m
+                  ff <- fungify (factor ^ p')
+                  fungified n $ concat [fm, ff, "*"]
 
 splitMul :: Integral i => (i,i) -> (i,i)
 splitMul x@(factor,_) =
@@ -76,8 +77,8 @@ naiveFungifyWith f n
    | isEasy n  = easyFungify n
    | otherwise = do
       let s = case fromJust.fromJust . find isJust $
-                       [ findSum isTrivial easies
-                       , findSum isEasy    easies
+                       [ findSum isTrivial nzEasies
+                       , findSum isEasy    nzEasies
                        , Just (Left maxPrintable)
                        ] of
                     Left  e -> [f (n-e), f e, return "+"]
@@ -85,7 +86,6 @@ naiveFungifyWith f n
 
       ms <- sequence s
       fungified n $ concat ms
-
  where
    findSum p (e:es) | p (n+e)   = Just $ Right e
                     | p (n-e)   = Just $ Left e
@@ -95,7 +95,7 @@ naiveFungifyWith f n
 easyFungify n
    | n < 16                  = fungified n [intToDigit $ fromIntegral n]
    | isLatin1 c && isPrint c = fungified n ['\'', c]
-   | otherwise               = error "easyFungify :: not easy"
+   | otherwise               = error$ "easyFungify :: not easy: " ++ show n
  where
    c = toEnum . fromIntegral $ n
 
@@ -109,10 +109,10 @@ isEasy    n = n >= 0 && (n < 16 || (n <= m && isLatin1 c && isPrint c))
 maxPrintable :: Integral i => i
 maxPrintable = last printables
 
-printables, easies :: Integral i => [i]
+printables, nzEasies :: Integral i => [i]
 printables = filter (isPrint.toEnum.fromIntegral) [0..255]
 
-easies = [0..15] ++ printables
+nzEasies = [1..15] ++ printables
 
 safeLast' :: b -> (a -> b) -> [a] -> b
 safeLast' x _ [] = x
