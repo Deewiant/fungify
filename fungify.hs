@@ -1,20 +1,22 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-import Control.Arrow ((&&&), second)
-import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (evaluate, catch, SomeException)
-import Control.Monad.State.Strict (State, get, put, evalState)
-import Data.Char (intToDigit, isLatin1, isPrint)
-import Data.Function (fix)
-import Data.List (genericLength, find, group, maximumBy)
-import Data.Maybe (isJust, fromJust, catMaybes)
-import Data.Ord (comparing)
-import System.Environment (getArgs)
-import System.IO (hGetContents, hClose)
-import System.IO.Unsafe (unsafePerformIO)
-import System.Process ( createProcess, proc, std_out, StdStream(CreatePipe)
-                      , waitForProcess, terminateProcess
-                      )
+import Control.Arrow               ((&&&), second)
+import Control.Concurrent          (forkIO)
+import Control.Concurrent.MVar     (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception           (catch, SomeException, evaluate)
+import Control.Monad.State.Strict  (State, get, put, evalState)
+import Data.Char                   (intToDigit, isLatin1, isPrint)
+import Data.Function               (fix)
+import Data.List                   (genericLength, find, group, maximumBy)
+import Data.Maybe                  (catMaybes, isJust, fromJust)
+import Data.Ord                    (comparing)
+import System.Environment          (getArgs)
+import System.IO                   (hClose, hGetContents)
+import System.IO.Unsafe            (unsafePerformIO)
+import System.Process              ( createProcess, proc, std_out
+                                   , waitForProcess, terminateProcess
+                                   , StdStream(CreatePipe)
+                                   )
 import Test.ChasingBottoms.TimeOut (timeOutMicro', Result(Value))
 
 import qualified Data.Map as M
