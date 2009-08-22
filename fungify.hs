@@ -4,6 +4,7 @@ import Control.Arrow               ((&&&), second)
 import Control.Concurrent          (forkIO)
 import Control.Concurrent.MVar     (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception           (catch, SomeException, evaluate)
+import Control.Parallel.Strategies (parMap, rwhnf)
 import Control.Monad.State.Strict  (State, get, put, evalState)
 import Data.Char                   (intToDigit, isLatin1, isPrint)
 import Data.Function               (fix)
@@ -78,7 +79,7 @@ naiveFungifyWith f n
    | otherwise = do
       let opts = [ findSum isTrivial nzEasies
                  , findSum isEasy    nzEasies
-                 , case catMaybes . map (tryFacCount.(n-)) $ nzEasiesRev of
+                 , case catMaybes . pMap (tryFacCount.(n-)) $ nzEasiesRev of
                         [] -> Just . Left $ maxEasy
                         xs -> Just . Left . fst $ maximumBy (comparing snd) xs
                  ]
@@ -150,3 +151,6 @@ factors = lengthGroup . plainFactors
 
 lengthGroup :: (Eq a, Integral l) => [a] -> [(a,l)]
 lengthGroup = map (head &&& genericLength) . group
+
+pMap :: (a -> b) -> [a] -> [b]
+pMap = parMap rwhnf
