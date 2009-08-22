@@ -8,6 +8,7 @@ import Data.Function (fix)
 import Data.List (genericLength, find, group, sort)
 import Data.Maybe (isJust, fromJust)
 import Data.Monoid (mconcat)
+import NumberTheory.Sieve.ONeill (primes)
 import System.Environment (getArgs)
 
 import qualified Data.Map as M
@@ -112,15 +113,15 @@ whileL :: (a -> Bool) -> (a -> a) -> a -> [a]
 whileL p f = takeWhile p . iterate f
 
 plainFactors :: Integral i => i -> [i]
-plainFactors 0 = [0]
-plainFactors n = f (2 : [3,5 .. n `quot` 2]) n
+plainFactors 1 = []
+plainFactors n = f primes n
  where
-  f _        1 = []
-  f []       x = [x]
-  f l@(p:ps) x = let (q,r) = x `quotRem` p
-                  in if r == 0
-                        then p : f l q
-                        else f ps x
+   f l@(p:ps) x
+      | p*p > x   = [x]
+      | r == 0    = p : f l q
+      | otherwise = f ps x
+    where
+      (q,r) = x `quotRem` p
 
 factors :: (Integral i, Integral p) => i -> [(i,p)]
 factors = lengthGroup . plainFactors
