@@ -13,9 +13,12 @@ import qualified Data.ListTrie.Patricia.Set.Ord as TS
 import Data.ListTrie.Patricia.Set.Ord (TrieSet)
 
 main :: IO ()
-main = getArgs >>= mapM_ (putStrLn . fungify . read)
+main = getArgs >>= mapM_ (putStrLn . fungifyNeg . read)
 
-fungify :: Integral i => i -> String
+fungifyNeg, fungify, naiveFungify :: Integral i => i -> String
+fungifyNeg n | n < 0     = concat ["0", fungify (-n), "-"]
+             | otherwise = fungify n
+
 fungify n | isEasy n  = easyFungify n
           | otherwise = let s = map f $ factors n
                          in concat s ++ replicate (length s - 1) '*'
@@ -36,7 +39,6 @@ splitMul x@(factor,_) =
                                      (\(n,p) -> (factor*n, p-1))
                                      x
 
-naiveFungify :: Integral i => i -> String
 naiveFungify = fix naiveFungifyWith
 
 naiveFungifyWith :: Integral i => (i -> String) -> i -> String
