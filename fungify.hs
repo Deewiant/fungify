@@ -28,7 +28,9 @@ fungified n s = do
            return s
 
 main :: IO ()
-main = getArgs >>= mapM_ (putStrLn . runFungifier fungifyNeg . read)
+main = (getArgs >>=) . mapM_ $ \s -> do
+   let n = read s :: Integer
+   putStrLn $ runFungifier fungifyNeg n
 
 fungifyNeg, fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
 fungifyNeg n | n >= 0    = fungify n
