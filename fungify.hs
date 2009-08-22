@@ -47,16 +47,16 @@ fungify n | isEasy n  = easyFungify n
  where
   f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
                  | otherwise         =
-                    let y@(m,p') = splitMul x
-                     in if y == x
-                           then naiveFungifyWith fungify (m^p)
+                    let (m,p') = applySafeMuls x
+                     in if factor == m -- p == p' as well
+                           then naiveFungifyWith fungify (factor^p)
                            else do
                               fm <- fungify m
                               ff <- fungify (factor ^ p')
-                              fungified n $ concat [fm, ff, "*"]
+                              fungified (factor^p) $ concat [fm, ff, "*"]
 
-splitMul :: Integral i => (i,i) -> (i,i)
-splitMul x@(factor,_) =
+applySafeMuls :: Integral i => (i,i) -> (i,i)
+applySafeMuls x@(factor,_) =
   safeLast' x (second pred) $ whileL (\(n,p) -> n <= 15 && p > 1)
                                      (\(n,p) -> (factor*n, p-1))
                                      x
