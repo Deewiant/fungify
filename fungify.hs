@@ -67,8 +67,8 @@ naiveFungifyWith :: Integral i => Fungifier i -> Fungifier i
 naiveFungifyWith f n
    | isEasy n  = easyFungify n
    | otherwise = do
-      let opts = [ findSum isTrivial easies
-                 , findSum isEasy    easies
+      let opts = [ findSum isTrivial nzEasies
+                 , findSum isEasy    nzEasies
                  , Just (Left maxEasy)
                  ]
           s = case fromJust.fromJust . find isJust $ opts of
@@ -98,10 +98,8 @@ isEasy    n = n >= 0 && (n < 16 || (n <= m && isLatin1 c && isPrint c))
    m = fromIntegral $ fromEnum (maxBound :: Char)
    c = toEnum . fromIntegral $ n
 
-printables, easies :: Integral i => [i]
-printables = filter (isPrint.toEnum.fromIntegral) [0..255]
-
-easies = [0..15] ++ printables
+nzEasies :: Integral i => [i]
+nzEasies = [1..15] ++ filter (isPrint.toEnum.fromIntegral) [16..255]
 
 maxEasy :: Integral i => i
 maxEasy = 255 -- last nzEasies
