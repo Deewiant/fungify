@@ -6,7 +6,7 @@ import Control.Monad.State.Strict (State, get, put, evalState)
 import Data.Char (intToDigit, isLatin1, isPrint)
 import Data.Function (fix)
 import Data.List (genericLength, find, group, minimumBy, sort)
-import Data.Maybe (isJust, fromJust)
+import Data.Maybe (isJust, fromJust, catMaybes)
 import Data.Number.Natural (Natural)
 import Data.Ord (comparing)
 import System.Environment (getArgs)
@@ -76,21 +76,19 @@ naiveFungifyWith :: Integral i => Fungifier i -> Fungifier i
 naiveFungifyWith f n
    | isEasy n  = easyFungify n
    | otherwise = do
-      let s = case fromJust.fromJust . find isJust $
-                       [ findSum isTrivial nzEasies
-                       , findSum isEasy    nzEasies
-                       , Just (Left maxPrintable)
-                       ] of
-                    Left  e -> [f (n-e), f e, return "+"]
-                    Right e -> [f (n+e), f e, return "-"]
-
-      ms <- sequence s
-      fungified n $ concat ms
+      let options = catMaybes . concat $ [ map (ezFungs isTrivial) nzEasies
+                                         , map (ezFungs isEasy)    nzEasies
+                                         , map fungs               nzEasies
+                                         ]
+      o' <- mapM sequence options
+      let o'' = map (id &&& length) $ concat o'
+      return (fst . guaranteedMinimumOn (minRequiredSum n) snd $ o'')
  where
-   findSum p (e:es) | p (n+e)   = Just $ Right e
-                    | p (n-e)   = Just $ Left e
-                    | otherwise = findSum p es
-   findSum _ [] = Nothing
+   ezFungs p x
+      | p (n-x)   = Just [easyFungify x, easyFungify (n-x), return "+"]
+      | otherwise = Nothing
+
+   fungs x = Just [easyFungify x, f (n-x), return "+"]
 
 easyFungify n
    | n < 16                  = fungified n [intToDigit $ fromIntegral n]
@@ -114,14 +112,21 @@ printables = filter (isPrint.toEnum.fromIntegral) [0..255]
 
 nzEasies = [1..15] ++ printables
 
--- Assumes that its input is not isEasy
-minRequiredMul :: (Integral i, Integral d) => i -> d
+-- Assume that their input is not isEasy
+minRequiredSum, minRequiredMul :: (Integral i, Integral d) => i -> d
 minRequiredMul n =
    let lg = floor $ logBase (fromIntegral maxPrintable) (fromIntegral n)
     in sum [ lg     -- nums
            , lg - 1 -- *
            , lg - 1 -- '
            , if isPrime n then 2 else 0 -- + offset
+           ]
+
+minRequiredSum n =
+   let qu = fromIntegral $ n `quot` maxPrintable
+    in sum [ qu + 1 -- nums
+           , qu     -- +
+           , qu     -- '
            ]
 
 safeLast' :: b -> (a -> b) -> [a] -> b
