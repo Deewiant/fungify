@@ -22,6 +22,11 @@ import Data.Map (Map)
 
 import Prelude hiding (catch)
 
+main :: IO ()
+main = (getArgs >>=) . mapM_ $ \s -> do
+   let n = read s :: Integer
+   putStrLn $ runFungifier fungifyNeg n
+
 type Fungifier i = i -> State (Map i String) String
 
 runFungifier :: Fungifier i -> i -> String
@@ -35,11 +40,6 @@ fungified n s = do
         Nothing -> do
            put $ M.insert n s m
            return s
-
-main :: IO ()
-main = (getArgs >>=) . mapM_ $ \s -> do
-   let n = read s :: Integer
-   putStrLn $ runFungifier fungifyNeg n
 
 fungifyNeg, fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
 fungifyNeg n | n >= 0    = fungify n
