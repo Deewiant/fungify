@@ -219,8 +219,8 @@ fungify n = asks esIsEasy >>= doIt
      f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
                     | otherwise         = do
                        maxEasy <- asks esMaxEasy
-                       let (m,p') = applySafeMuls maxEasy x
-                       if factor == m -- p == p' as well
+                       let y@(m,p') = applySafeMuls maxEasy x
+                       if x == y
                           then naiveFungifyWith fungify (factor^p)
                           else do
                              fm <- fungify m
