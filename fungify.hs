@@ -186,6 +186,7 @@ naiveFungifyWith f n
       fungified n $ Add a b
 
  where
+   tryFacCount x | x < 0 = Nothing
    tryFacCount x =
       case unsafePerformIO . timeOutMicro' 5000 . length . plainFactors $ x of
            Value v -> Just (x, v)
