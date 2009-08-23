@@ -56,7 +56,7 @@ main = go Funge Ascii =<< getArgs
 
 -- For GHCi
 simple, simpleOpt :: EasySetId -> Integer -> AST Integer
-simple    esId = runFungifier fungify (getSet esId)
+simple         = runFungifier fungify . getSet
 simpleOpt esId = astOpt (esIsEasy $ getSet esId) . simple esId
 
 data AST i = Push i
@@ -315,7 +315,7 @@ partitions = map (map msToList) . mPartitions . msFromList
 
    vHalf :: Vec -> Vec
    vHalf [] = []
-   vHalf (x:xs) | (even x)  = (x `quot` 2) : vHalf xs
+   vHalf (x:xs) | even x    = (x `quot` 2) : vHalf xs
                 | otherwise = (x `quot` 2) : xs
 
    withinFromTo m' s' e' | s' >| m'  = withinFromTo m' (zipWith min m' s') e'
@@ -331,4 +331,4 @@ partitions = map (map msToList) . mPartitions . msFromList
 
       wFT _ _ _ _ _ = error "partitions :: impossible"
 
-      xs >| ys = and $ zipWith (>) xs ys
+      (>|) = (and .) . zipWith (>)
