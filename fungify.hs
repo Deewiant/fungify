@@ -6,7 +6,9 @@ import Control.Concurrent.MVar     (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception           (catch, SomeException, evaluate)
 import Control.Parallel.Strategies (parMap, rwhnf)
 import Control.Monad               (liftM2, msum)
+import Control.Monad.Reader        (ReaderT, runReaderT, ask, asks)
 import Control.Monad.State.Strict  (State, get, put, evalState)
+import Control.Monad.Trans         (lift)
 import Data.Char                   (intToDigit, isLatin1, isPrint, isSpace)
 import Data.Function               (fix)
 import Data.List                   ( find, group, maximumBy, sort, (\\)
@@ -29,21 +31,33 @@ import Data.Map (Map)
 import Prelude hiding (catch)
 
 main :: IO ()
-main = go Funge =<< getArgs
+main = go Funge Ascii =<< getArgs
  where
-   go _   []           = return ()
-   go _   ("rpn":xs)   = go RPN xs
-   go _   ("funge":xs) = go Funge xs
-   go sty (x:xs)       =
+   go _   _    []            = return ()
+   go _   esId ("rpn"   :xs) = go RPN   esId   xs
+   go _   esId ("funge" :xs) = go Funge esId   xs
+   go sty _    ("ascii" :xs) = go sty   Ascii  xs
+   go sty _    ("latin1":xs) = go sty   Latin1 xs
+   go sty _    ("dec"   :xs) = go sty   Dec    xs
+   go sty _    ("hex"   :xs) = go sty   Hex    xs
+   go sty esId (x:xs)        =
       case maybeRead x of
            Just (n :: Integer) -> do
-              let ast = astOpt . runFungifier fungify . abs $ n
+              let numSet = getSet esId
+                  ast    = astOpt (esIsEasy numSet)
+                         . runFungifier fungify numSet
+                         . abs $ n
               putStrLn $ showNegAs sty n ast
-              go sty xs
+              go sty esId xs
 
            Nothing -> do
               hPutStrLn stderr $ concat ["Ignoring unknown arg '",x,"'"]
-              go sty xs
+              go sty esId xs
+
+-- For GHCi
+simple, simpleOpt :: EasySetId -> Integer -> AST Integer
+simple    esId = runFungifier fungify (getSet esId)
+simpleOpt esId = astOpt (esIsEasy $ getSet esId) . simple esId
 
 data AST i = Push i
            | Add (AST i) (AST i)
@@ -90,8 +104,8 @@ fungeOpt ('\'':c:xs) =
 fungeOpt (x:xs) = x : fungeOpt xs
 fungeOpt []     = []
 
-astOpt :: Integral i => AST i -> AST i
-astOpt = compressMuls
+astOpt :: Integral i => (i -> Bool) -> AST i -> AST i
+astOpt isEasy = compressMuls
  where
    compressMuls x@(Mul a b) =
       let ms        = getMuls x
@@ -127,16 +141,48 @@ astOpt = compressMuls
 
       go ds x = (ds, Just x)
 
-type Fungifier i = i -> State (Map i (AST i)) (AST i)
+type Fungified i = ReaderT (EasySet i) (State (Map i (AST i))) (AST i)
+type Fungifier i = i -> Fungified i
 
-runFungifier :: Integral i => Fungifier i -> i -> (AST i)
-runFungifier f n =
-   if n < 0
-      then error "runFungifier :: negative"
-      else evalState (f n) M.empty
+data EasySetId = Ascii | Latin1 | Hex | Dec
 
-fungified :: Integral i => i -> AST i -> State (Map i (AST i)) (AST i)
-fungified n s = do
+data EasySet i =
+   ES { esNzEasies    :: [i]         -- "Nonzero easies"
+      , esNzEasiesRev :: [i]
+      , esMaxEasy     :: i           -- Same as 'last nums'
+      , esIsEasies    :: [i -> Bool] -- Prefer numbers matching an earlier one
+      , esIsEasy      ::  i -> Bool  -- Equivalent to \x -> any ($x) esIsEasies
+      }
+
+getSet :: Integral i => EasySetId -> EasySet i
+getSet ident =
+   case ident of
+        Latin1 -> numSet 16 +.+ printableSet 256
+        Ascii  -> numSet 16 +.+ printableSet 128
+        Hex    -> numSet 16
+        Dec    -> numSet 10
+ where
+   printableSet n = let es = filter printable [1..n-1]
+                        m  = last es
+                     in mk es m (liftM2 (&&) (<m) printable)
+
+   numSet n = mk [1..n-1] n (<n)
+
+   ES es1 _ _ ies1 i1 +.+ ES es2 _ m ies2 i2 =
+      let es = es1 ++ es2
+       in ES es (reverse es) m (ies1 ++ ies2) (liftM2 (||) i1 i2)
+
+   printable = isPrint . toEnum . fromIntegral
+
+   mk es m p = ES es (reverse es) m [p] p
+
+runFungifier :: Integral i => Fungifier i -> EasySet i -> i -> (AST i)
+runFungifier _ _ n | n < 0 = error "runFungifier :: negative"
+runFungifier f s n         =
+   flip evalState M.empty . flip runReaderT s $ f n
+
+fungified :: Integral i => i -> AST i -> Fungified i
+fungified n s = lift $ do
    m <- get
    case M.lookup n m of
         Just s' -> return s'
@@ -145,23 +191,27 @@ fungified n s = do
            return s
 
 fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
-fungify n | isEasy n  = easyFungify n
-          | otherwise = do
-             s <- mapM f $ factors n
-             fungified n $ foldr1 Mul s
+fungify n = asks esIsEasy >>= doIt
  where
-  f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
-                 | otherwise         =
-                    let (m,p') = applySafeMuls x
-                     in if factor == m -- p == p' as well
-                           then naiveFungifyWith fungify (factor^p)
-                           else do
-                              fm <- fungify m
-                              ff <- fungify (factor ^ p')
-                              fungified (factor^p) $ Mul fm ff
+   doIt isEasy | isEasy n  = easyFungify n
+               | otherwise = do
+                    s <- mapM f $ factors n
+                    fungified n $ foldr1 Mul s
 
-applySafeMuls :: Integral i => (i,i) -> (i,i)
-applySafeMuls x@(factor,_) =
+    where
+     f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
+                    | otherwise         = do
+                       maxEasy <- asks esMaxEasy
+                       let (m,p') = applySafeMuls maxEasy x
+                       if factor == m -- p == p' as well
+                          then naiveFungifyWith fungify (factor^p)
+                          else do
+                             fm <- fungify m
+                             ff <- fungify (factor ^ p')
+                             fungified (factor^p) $ Mul fm ff
+
+applySafeMuls :: Integral i => i -> (i,i) -> (i,i)
+applySafeMuls maxEasy x@(factor,_) =
   safeLast' x (second pred) $ whileL (\(n,p) -> n <= maxEasy && p > 1)
                                      (\(n,p) -> (factor*n, p-1))
                                      x
@@ -169,21 +219,23 @@ applySafeMuls x@(factor,_) =
 naiveFungify = fix naiveFungifyWith
 
 naiveFungifyWith :: Integral i => Fungifier i -> Fungifier i
-naiveFungifyWith f n
-   | isEasy n  = easyFungify n
-   | otherwise = do
-      let opts = [ findSum isTrivial nzEasies
-                 , findSum isEasy    nzEasies
-                 , case catMaybes . pMap (tryFacCount.(n-)) $ nzEasiesRev of
-                        [] -> Just maxEasy
-                        xs -> Just . fst $ maximumBy (comparing snd) xs
-                 ]
+naiveFungifyWith f n = do
+   ES nzEasies nzEasiesRev maxEasy isEasies isEasy <- ask
+   if isEasy n
+      then easyFungify n
+      else do
+         let opts =
+                map (flip findSum nzEasies) isEasies
+                ++ [ case catMaybes . pMap (tryFacCount.(n-)) $ nzEasiesRev of
+                          [] -> Just maxEasy
+                          xs -> Just . fst $ maximumBy (comparing snd) xs
+                   ]
 
-          diff = fromJust.fromJust . find isJust $ opts
+             diff = fromJust.fromJust . find isJust $ opts
 
-      a <- f (n - diff)
-      b <- f diff
-      fungified n $ Add a b
+         a <- f (n - diff)
+         b <- f diff
+         fungified n $ Add a b
 
  where
    tryFacCount x | x < 0 = Nothing
@@ -195,20 +247,6 @@ naiveFungifyWith f n
    findSum p = find (p . (n-))
 
 easyFungify n = fungified n (Push n)
-
-isEasy, isTrivial :: Integral i => i -> Bool
-isTrivial n = n >= 0 &&  n < 16
-isEasy    n = n >= 0 && (n < 16 || (n <= m && isLatin1 c && isPrint c))
- where
-   m = fromIntegral $ fromEnum (maxBound :: Char)
-   c = toEnum . fromIntegral $ n
-
-nzEasies, nzEasiesRev :: Integral i => [i]
-nzEasies    = [1..15] ++ filter (isPrint.toEnum.fromIntegral) [16..255]
-nzEasiesRev = reverse nzEasies
-
-maxEasy :: Integral i => i
-maxEasy = 255 -- last nzEasies
 
 safeLast' :: b -> (a -> b) -> [a] -> b
 safeLast' x _ [] = x
