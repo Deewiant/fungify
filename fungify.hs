@@ -78,9 +78,9 @@ data AST i = Push i
            | Mul (AST i) (AST i)
 
            -- Generated in post-processing in astOpt
-           | DupAdd (AST i)
-           | DupMul (AST i)
- deriving Show
+           | DupAdd !Int (AST i)
+           | DupMul !Int (AST i)
+ deriving (Eq, Show)
 
 data ShowStyle = Funge | RPN | DC
 
@@ -104,20 +104,24 @@ fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
  where
    c = toEnum . fromIntegral $ n
 
-fungeShow (Add a b)  = concat [fungeShow a, fungeShow b, "+"]
-fungeShow (Mul a b)  = concat [fungeShow a, fungeShow b, "*"]
-fungeShow (DupAdd a) = concat [fungeShow a, ":", "+"]
-fungeShow (DupMul a) = concat [fungeShow a, ":", "*"]
+fungeShow (Add a b)    = concat [fungeShow a, fungeShow b, "+"]
+fungeShow (Mul a b)    = concat [fungeShow a, fungeShow b, "*"]
+fungeShow (DupAdd n a) = concat [fungeShow a, repC n ":", repC n "+"]
+fungeShow (DupMul n a) = concat [fungeShow a, repC n ":", repC n "*"]
 
-rpnShow (Push n)   = show n
-rpnShow (Add a b)  = unwords [rpnShow a, rpnShow b, "+"]
-rpnShow (Mul a b)  = unwords [rpnShow a, rpnShow b, "*"]
-rpnShow (DupAdd a) = rpnShow (Add a a)
-rpnShow (DupMul a) = rpnShow (Mul a a)
+rpnShow (Push n)     = show n
+rpnShow (Add a b)    = unwords [rpnShow a, rpnShow b, "+"]
+rpnShow (Mul a b)    = unwords [rpnShow a, rpnShow b, "*"]
+rpnShow (DupAdd n a) = unwords [rpnShow a, repU n (rpnShow a), repU n "+"]
+rpnShow (DupMul n a) = unwords [rpnShow a, repU n (rpnShow a), repU n "*"]
 
-dcShow (DupAdd a) = unwords [dcShow a, "d", "+"]
-dcShow (DupMul a) = unwords [dcShow a, "d", "*"]
+dcShow (DupAdd n a) = unwords [dcShow a, repU n "d", repU n "+"]
+dcShow (DupMul n a) = unwords [dcShow a, repU n "d", repU n "*"]
 dcShow x          = rpnShow x
+
+repC, repU :: Int -> String -> String
+repC n = concat  . replicate n
+repU n = unwords . replicate n
 
 fungeOpt :: String -> String
 fungeOpt ('\'':c:xs) =
@@ -133,19 +137,23 @@ fungeOpt (x:xs) = x : fungeOpt xs
 fungeOpt []     = []
 
 astOpt :: Integral i => (i -> Bool) -> AST i -> AST i
-astOpt isEasy = dup . compressMuls
+astOpt isEasy = fixPoint dup . compressMuls
  where
-   dup (Add a b) | a =~= b   = DupAdd a
+   dup (Add (DupAdd n a) b) | a =~= b = DupAdd (n+1) (dup a)
+   dup (Add a (DupAdd n b)) | a =~= b = DupAdd (n+1) (dup a)
+   dup (Mul (DupMul n a) b) | a =~= b = DupMul (n+1) (dup a)
+   dup (Mul a (DupMul n b)) | a =~= b = DupMul (n+1) (dup a)
+
+   dup (Add a b) | a =~= b   = DupAdd 1 (dup a)
                  | otherwise = Add (dup a) (dup b)
-   dup (Mul a b) | a =~= b   = DupMul a
+   dup (Mul a b) | a =~= b   = DupMul 1 (dup a)
                  | otherwise = Mul (dup a) (dup b)
    dup x = x
 
    -- Equality, handles commutativity but nothing else...
    Add a b =~= Add x y = (a =~= x && b =~= y) || (a =~= y && b =~= x)
    Mul a b =~= Mul x y = (a =~= x && b =~= y) || (a =~= y && b =~= x)
-   Push a  =~= Push b  = a == b
-   _       =~= _       = False
+   x       =~= y       = x == y
 
    compressMuls x@(Mul a b) =
       let ms        = getMuls x
@@ -161,8 +169,8 @@ astOpt isEasy = dup . compressMuls
 
    compressMuls (Add a b)  = Add (compressMuls a) (compressMuls b)
    compressMuls x@(Push _) = x
-   compressMuls (DupAdd _) = error "compressMuls :: impossible dupAdd"
-   compressMuls (DupMul _) = error "compressMuls :: impossible dupMul"
+   compressMuls (DupAdd _ _) = error "compressMuls :: impossible DupAdd"
+   compressMuls (DupMul _ _) = error "compressMuls :: impossible DupMul"
 
    getMuls (Push n)  = [n]
    getMuls (Mul a b) = getMuls a ++ getMuls b
@@ -333,6 +341,9 @@ maybeRead :: Read a => String -> Maybe a
 maybeRead s = case reads s of
                    [(x,w)] | all isSpace w -> Just x
                    _                       -> Nothing
+
+fixPoint :: Eq a => (a -> a) -> a -> a
+fixPoint f = snd . until (uncurry (==)) ((id &&& f) . snd) . (id &&& f)
 
 -- All the rest is thanks to Brent Yorgey's article in The.Monad.Reader issue
 -- 8, "Generating Multiset Partitions"
