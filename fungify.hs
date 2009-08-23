@@ -54,6 +54,7 @@ main = foldM_ f ([Funge], [Ascii], True) =<< getArgs
 
    readOpt add   (ss,es,b) "rpn"    = return (addOpt add RPN   ss,  es, b)
    readOpt add   (ss,es,b) "funge"  = return (addOpt add Funge ss,  es, b)
+   readOpt add   (ss,es,b) "dc"     = return (addOpt add DC    ss,  es, b)
    readOpt add   (ss,es,b) "ascii"  = return (ss, addOpt add Ascii  es, b)
    readOpt add   (ss,es,b) "latin1" = return (ss, addOpt add Latin1 es, b)
    readOpt add   (ss,es,b) "hex"    = return (ss, addOpt add Hex    es, b)
@@ -81,7 +82,7 @@ data AST i = Push i
            | DupMul (AST i)
  deriving Show
 
-data ShowStyle = RPN | Funge
+data ShowStyle = Funge | RPN | DC
 
 showNegAs :: Integral i => ShowStyle -> i -> AST i -> String
 showNegAs sty n = (if n >= 0 then id else showNeg sty) . showAs sty
@@ -89,12 +90,14 @@ showNegAs sty n = (if n >= 0 then id else showNeg sty) . showAs sty
 showNeg :: ShowStyle -> String -> String
 showNeg Funge s = concat  ["0", s, "-"]
 showNeg RPN   s = unwords ["0", s, "-"]
+showNeg DC    s = showNeg RPN s
 
 showAs :: Integral i => ShowStyle -> AST i -> String
 showAs Funge = fungeOpt . fungeShow
 showAs RPN   = rpnShow
+showAs DC    = dcShow
 
-fungeShow, rpnShow :: Integral i => AST i -> String
+fungeShow, rpnShow, dcShow :: Integral i => AST i -> String
 fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
                    | isLatin1 c && isPrint c = ['\'', c]
                    | otherwise               = error "fungeShow :: bad Push"
@@ -111,6 +114,10 @@ rpnShow (Add a b)  = unwords [rpnShow a, rpnShow b, "+"]
 rpnShow (Mul a b)  = unwords [rpnShow a, rpnShow b, "*"]
 rpnShow (DupAdd a) = rpnShow (Add a a)
 rpnShow (DupMul a) = rpnShow (Mul a a)
+
+dcShow (DupAdd a) = unwords [dcShow a, "d", "+"]
+dcShow (DupMul a) = unwords [dcShow a, "d", "*"]
+dcShow x          = rpnShow x
 
 fungeOpt :: String -> String
 fungeOpt ('\'':c:xs) =
