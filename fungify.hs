@@ -75,6 +75,10 @@ simpleOpt esId = astOpt (esIsEasy $ getSet esId) . simple esId
 data AST i = Push i
            | Add (AST i) (AST i)
            | Mul (AST i) (AST i)
+
+           -- Generated in post-processing in astOpt
+           | DupAdd (AST i)
+           | DupMul (AST i)
  deriving Show
 
 data ShowStyle = RPN | Funge
@@ -97,12 +101,16 @@ fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
  where
    c = toEnum . fromIntegral $ n
 
-fungeShow (Add a b) = concat [fungeShow a, fungeShow b, "+"]
-fungeShow (Mul a b) = concat [fungeShow a, fungeShow b, "*"]
+fungeShow (Add a b)  = concat [fungeShow a, fungeShow b, "+"]
+fungeShow (Mul a b)  = concat [fungeShow a, fungeShow b, "*"]
+fungeShow (DupAdd a) = concat [fungeShow a, ":", "+"]
+fungeShow (DupMul a) = concat [fungeShow a, ":", "*"]
 
-rpnShow (Push n)  = show n
-rpnShow (Add a b) = unwords [rpnShow a, rpnShow b, "+"]
-rpnShow (Mul a b) = unwords [rpnShow a, rpnShow b, "*"]
+rpnShow (Push n)   = show n
+rpnShow (Add a b)  = unwords [rpnShow a, rpnShow b, "+"]
+rpnShow (Mul a b)  = unwords [rpnShow a, rpnShow b, "*"]
+rpnShow (DupAdd a) = rpnShow (Add a a)
+rpnShow (DupMul a) = rpnShow (Mul a a)
 
 fungeOpt :: String -> String
 fungeOpt ('\'':c:xs) =
@@ -118,8 +126,20 @@ fungeOpt (x:xs) = x : fungeOpt xs
 fungeOpt []     = []
 
 astOpt :: Integral i => (i -> Bool) -> AST i -> AST i
-astOpt isEasy = compressMuls
+astOpt isEasy = dup . compressMuls
  where
+   dup (Add a b) | a =~= b   = DupAdd a
+                 | otherwise = Add (dup a) (dup b)
+   dup (Mul a b) | a =~= b   = DupMul a
+                 | otherwise = Mul (dup a) (dup b)
+   dup x = x
+
+   -- Equality, handles commutativity but nothing else...
+   Add a b =~= Add x y = (a =~= x && b =~= y) || (a =~= y && b =~= x)
+   Mul a b =~= Mul x y = (a =~= x && b =~= y) || (a =~= y && b =~= x)
+   Push a  =~= Push b  = a == b
+   _       =~= _       = False
+
    compressMuls x@(Mul a b) =
       let ms        = getMuls x
           (del,res) = maximumBy (comparing $ length.fst)
@@ -134,6 +154,8 @@ astOpt isEasy = compressMuls
 
    compressMuls (Add a b)  = Add (compressMuls a) (compressMuls b)
    compressMuls x@(Push _) = x
+   compressMuls (DupAdd _) = error "compressMuls :: impossible dupAdd"
+   compressMuls (DupMul _) = error "compressMuls :: impossible dupMul"
 
    getMuls (Push n)  = [n]
    getMuls (Mul a b) = getMuls a ++ getMuls b
