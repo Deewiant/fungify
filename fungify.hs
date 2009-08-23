@@ -88,7 +88,7 @@ fungeOpt []     = []
 astOpt :: Integral i => AST i -> AST i
 astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
  where
-   compressMuls _ x@(Mul _ _) =
+   compressMuls changed x@(Mul _ _) =
       let ms        = getMuls x
           (del,res) = maximumBy (comparing $ length.fst)
                     . filter ((<=maxEasy).snd)
@@ -96,7 +96,9 @@ astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
                     . partitions $ ms
 
           res' = Push res
-       in maybe (True, res') ((,) (del /= [res]) . Mul res') . delMuls del $ x
+       in maybe (True, res')
+                (second (Mul res') . compressMuls (changed || del /= [res]))
+                (delMuls del x)
 
    compressMuls changed (Add a b) =
       let (c,  a') = compressMuls changed a
