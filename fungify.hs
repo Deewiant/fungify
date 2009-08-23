@@ -5,14 +5,15 @@ import Control.Concurrent          (forkIO)
 import Control.Concurrent.MVar     (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception           (catch, SomeException, evaluate)
 import Control.Parallel.Strategies (parMap, rwhnf)
+import Control.Monad               (forM_)
 import Control.Monad.State.Strict  (State, get, put, evalState)
-import Data.Char                   (intToDigit, isLatin1, isPrint)
+import Data.Char                   (intToDigit, isLatin1, isPrint, isSpace)
 import Data.Function               (fix)
 import Data.List                   (genericLength, find, group, maximumBy)
 import Data.Maybe                  (catMaybes, isJust, fromJust)
 import Data.Ord                    (comparing)
 import System.Environment          (getArgs)
-import System.IO                   (hClose, hGetContents)
+import System.IO                   (hClose, hGetContents, hPutStrLn, stderr)
 import System.IO.Unsafe            (unsafePerformIO)
 import System.Process              ( createProcess, proc, std_out
                                    , waitForProcess, terminateProcess
@@ -26,16 +27,55 @@ import Data.Map (Map)
 import Prelude hiding (catch)
 
 main :: IO ()
-main = (getArgs >>=) . mapM_ $ \s -> do
-   let n = read s :: Integer
-   putStrLn $ runFungifier fungifyNeg n
+main = go Funge =<< getArgs
+ where
+   go _   []           = return ()
+   go _   ("rpn":xs)   = go RPN xs
+   go _   ("funge":xs) = go Funge xs
+   go sty (x:xs)       =
+      case maybeRead x of
+           Just (n :: Integer) -> do
+              putStrLn . showWith sty $ runFungifier fungifyNeg n
+              go sty xs
 
-type Fungifier i = i -> State (Map i String) String
+           Nothing -> do
+              hPutStrLn stderr $ concat ["Ignoring unknown arg '",x,"'"]
+              go sty xs
 
-runFungifier :: Fungifier i -> i -> String
+data AST i = Push i
+           | Add (AST i) (AST i)
+           | Mul (AST i) (AST i)
+           | Sub (AST i) (AST i)
+ deriving Show
+
+data ShowStyle = RPN | Funge
+
+showWith :: Integral i => ShowStyle -> AST i -> String
+showWith Funge = fungeShow
+showWith RPN   = rpnShow
+
+fungeShow, rpnShow :: Integral i => AST i -> String
+fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
+                   | isLatin1 c && isPrint c = ['\'', c]
+                   | otherwise               = error "fungeShow :: bad Push"
+ where
+   c = toEnum . fromIntegral $ n
+
+fungeShow (Add a b) = concat [fungeShow a, fungeShow b, "+"]
+fungeShow (Sub a b) = concat [fungeShow a, fungeShow b, "-"]
+fungeShow (Mul a b) = concat [fungeShow a, fungeShow b, "*"]
+
+rpnShow (Push n)  = show n
+rpnShow (Add a b) = unwords [rpnShow a, rpnShow b, "+"]
+rpnShow (Sub a b) = unwords [rpnShow a, rpnShow b, "-"]
+rpnShow (Mul a b) = unwords [rpnShow a, rpnShow b, "*"]
+
+type Fungifier i = i -> State (Map i (AST i)) (AST i)
+
+runFungifier :: Fungifier i -> i -> (AST i)
 runFungifier f n = evalState (f n) M.empty
 
-fungified :: Integral i => i -> String -> State (Map i String) String
+fungified :: Integral i => i -> AST i -> State (Map i (AST i)) (AST i)
 fungified n s = do
    m <- get
    case M.lookup n m of
@@ -48,12 +88,12 @@ fungifyNeg, fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
 fungifyNeg n | n >= 0    = fungify n
              | otherwise = do
                 f <- fungify (-n)
-                fungified n $ concat ["0", f, "-"]
+                fungified n $ Sub (Push 0) f
 
 fungify n | isEasy n  = easyFungify n
           | otherwise = do
              s <- mapM f $ factors n
-             fungified n $ concat s ++ replicate (length s - 1) '*'
+             fungified n $ foldr1 Mul s
  where
   f x@(factor,p) | isEasy (factor^p) = easyFungify (factor^p)
                  | otherwise         =
@@ -63,7 +103,7 @@ fungify n | isEasy n  = easyFungify n
                            else do
                               fm <- fungify m
                               ff <- fungify (factor ^ p')
-                              fungified (factor^p) $ concat [fm, ff, "*"]
+                              fungified (factor^p) $ Mul fm ff
 
 applySafeMuls :: Integral i => (i,i) -> (i,i)
 applySafeMuls x@(factor,_) =
@@ -84,12 +124,12 @@ naiveFungifyWith f n
                         xs -> Just . Left . fst $ maximumBy (comparing snd) xs
                  ]
 
-          s = case fromJust.fromJust . find isJust $ opts of
-                   Left  e -> [f (n-e), f e, return "+"]
-                   Right e -> [f (n+e), f e, return "-"]
-
-      ms <- sequence s
-      fungified n $ concat ms
+          (op,a,b) = case fromJust.fromJust . find isJust $ opts of
+                          Left  e -> (Add, f (n-e), f e)
+                          Right e -> (Sub, f (n+e), f e)
+      a' <- a
+      b' <- b
+      fungified n $ op a' b'
 
  where
    tryFacCount x =
@@ -102,12 +142,7 @@ naiveFungifyWith f n
                     | otherwise = findSum p es
    findSum _ [] = Nothing
 
-easyFungify n
-   | n < 16                  = fungified n [intToDigit $ fromIntegral n]
-   | isLatin1 c && isPrint c = fungified n ['\'', c]
-   | otherwise               = error "easyFungify :: not easy"
- where
-   c = toEnum . fromIntegral $ n
+easyFungify n = fungified n (Push n)
 
 isEasy, isTrivial :: Integral i => i -> Bool
 isTrivial n = n >= 0 &&  n < 16
@@ -154,3 +189,8 @@ lengthGroup = map (head &&& genericLength) . group
 
 pMap :: (a -> b) -> [a] -> [b]
 pMap = parMap rwhnf
+
+maybeRead :: Read a => String -> Maybe a
+maybeRead s = case reads s of
+                   [(x,w)] | all isSpace w -> Just x
+                   _                       -> Nothing
