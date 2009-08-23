@@ -36,7 +36,7 @@ main = go Funge =<< getArgs
    go sty (x:xs)       =
       case maybeRead x of
            Just (n :: Integer) -> do
-              putStrLn . showWith sty . astOpt . runFungifier fungifyNeg $ n
+              putStrLn . showAs sty . astOpt . runFungifier fungifyNeg $ n
               go sty xs
 
            Nothing -> do
@@ -51,9 +51,9 @@ data AST i = Push i
 
 data ShowStyle = RPN | Funge
 
-showWith :: Integral i => ShowStyle -> AST i -> String
-showWith Funge = fungeShow
-showWith RPN   = rpnShow
+showAs :: Integral i => ShowStyle -> AST i -> String
+showAs Funge = fungeShow
+showAs RPN   = rpnShow
 
 fungeShow, rpnShow :: Integral i => AST i -> String
 fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
