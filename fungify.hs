@@ -5,11 +5,12 @@ import Control.Concurrent          (forkIO)
 import Control.Concurrent.MVar     (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception           (catch, SomeException, evaluate)
 import Control.Parallel.Strategies (parMap, rwhnf)
-import Control.Monad               (forM_)
+import Control.Monad               (liftM2, msum)
 import Control.Monad.State.Strict  (State, get, put, evalState)
 import Data.Char                   (intToDigit, isLatin1, isPrint, isSpace)
 import Data.Function               (fix)
-import Data.List                   (genericLength, find, group, maximumBy)
+import Data.List                   ( find, group, maximumBy, sort, (\\)
+                                   , genericLength )
 import Data.Maybe                  (catMaybes, isJust, fromJust)
 import Data.Ord                    (comparing)
 import System.Environment          (getArgs)
@@ -35,7 +36,7 @@ main = go Funge =<< getArgs
    go sty (x:xs)       =
       case maybeRead x of
            Just (n :: Integer) -> do
-              putStrLn . showWith sty $ runFungifier fungifyNeg n
+              putStrLn . showWith sty . astOpt . runFungifier fungifyNeg $ n
               go sty xs
 
            Nothing -> do
@@ -69,6 +70,50 @@ rpnShow (Push n)  = show n
 rpnShow (Add a b) = unwords [rpnShow a, rpnShow b, "+"]
 rpnShow (Sub a b) = unwords [rpnShow a, rpnShow b, "-"]
 rpnShow (Mul a b) = unwords [rpnShow a, rpnShow b, "*"]
+
+astOpt :: Integral i => AST i -> AST i
+astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
+ where
+   compressMuls _ x@(Mul _ _) =
+      let ms        = getMuls x
+          (del,res) = maximumBy (comparing $ length.fst)
+                    . filter ((<=maxEasy).snd)
+                    . (concatMap.map) (id &&& product)
+                    . partitions $ ms
+
+          res' = Push res
+       in maybe (True, res') ((,) (del /= [res]) . Mul res') . delMuls del $ x
+
+   compressMuls changed (Add a b) =
+      let (c,  a') = compressMuls changed a
+          (c', b') = compressMuls changed b
+       in (or [changed, c, c'], Add a' b')
+
+   compressMuls changed (Sub a b) =
+      let (c,  a') = compressMuls changed a
+          (c', b') = compressMuls changed b
+       in (or [changed, c, c'], Sub a' b')
+
+   compressMuls changed x@(Push _) = (changed, x)
+
+   getMuls (Push n)  = [n]
+   getMuls (Mul a b) = getMuls a ++ getMuls b
+   getMuls _         = []
+
+   delMuls dels = snd . go dels
+    where
+      go [] x = ([], Just x)
+      go ds x@(Push n) =
+         if n `elem` ds
+            then (ds \\ [n], Nothing)
+            else (ds, Just x)
+
+      go ds (Mul a b) =
+         let (ds',  a') = go ds  a
+             (ds'', b') = go ds' b
+          in (ds'', msum [liftM2 Mul a' b', a', b'])
+
+      go ds x = (ds, Just x)
 
 type Fungifier i = i -> State (Map i (AST i)) (AST i)
 
@@ -194,3 +239,48 @@ maybeRead :: Read a => String -> Maybe a
 maybeRead s = case reads s of
                    [(x,w)] | all isSpace w -> Just x
                    _                       -> Nothing
+
+-- All the rest is thanks to Brent Yorgey's article in The.Monad.Reader issue
+-- 8, "Generating Multiset Partitions"
+type Vec = [Int]
+data MultiSet a = MS [a] Vec deriving Show
+
+partitions :: Ord a => [a] -> [[[a]]]
+partitions = map (map msToList) . mPartitions . msFromList
+ where
+   msFromList = uncurry MS . unzip . lengthGroup . sort
+
+   msToList (MS es cs) = concat $ zipWith replicate cs es
+
+   mPartitions (MS elts v) = map (map (MS elts)) $ vPartitions v
+
+   vPartitions v = vPart v (vUnit v)
+
+   vPart v  _ | all (==0) v = [[]]
+   vPart v vL =
+      [v] : [v':p | v' <- withinFromTo v (vHalf v) vL
+                  , p  <- vPart (zipWith (-) v v') v']
+
+   vUnit [] = []
+   vUnit [_] = [1]
+   vUnit (_:xs) = 0 : vUnit xs
+
+   vHalf :: Vec -> Vec
+   vHalf [] = []
+   vHalf (x:xs) | (even x)  = (x `quot` 2) : vHalf xs
+                | otherwise = (x `quot` 2) : xs
+
+   withinFromTo m' s' e' | s' >| m'  = withinFromTo m' (zipWith min m' s') e'
+                         | e' >  s'  = []
+                         | otherwise = wFT m' s' e' True True
+    where
+      wFT [] _ _ _ _ = [[]]
+      wFT (m:ms) (s:ss) (e:es) useS useE =
+         let start = if useS then s else m
+             end = if useE then e else 0
+          in [x:xs | x  <- [start,(start-1)..end]
+                   , xs <- wFT ms ss es (useS && x==s) (useE && x==e)]
+
+      wFT _ _ _ _ _ = error "partitions :: impossible"
+
+      xs >| ys = and $ zipWith (>) xs ys
