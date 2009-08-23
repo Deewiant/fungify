@@ -96,7 +96,7 @@ astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
    compressMuls changed x@(Mul _ _) =
       let ms        = getMuls x
           (del,res) = maximumBy (comparing $ length.fst)
-                    . filter ((<=maxEasy).snd)
+                    . filter (isEasy.snd)
                     . (concatMap.map) (id &&& product)
                     . partitions $ ms
 
