@@ -156,12 +156,16 @@ data EasySet i =
 
 getSet :: Integral i => EasySetId -> EasySet i
 getSet ident =
-   case ident of
-        Latin1 -> numSet 16 +.+ printableSet 256
-        Ascii  -> numSet 16 +.+ printableSet 128
-        Hex    -> numSet 16
-        Dec    -> numSet 10
+   nz $ case ident of
+              Latin1 -> numSet 16 +.+ printableSet 256
+              Ascii  -> numSet 16 +.+ printableSet 128
+              Hex    -> numSet 16
+              Dec    -> numSet 10
  where
+   nz e@(ES {esIsEasies = ies, esIsEasy = ie}) =
+      e{ esIsEasies = map (\p -> \x -> x > 0 && p x) ies
+       , esIsEasy   = \x -> x > 0 && ie x }
+
    printableSet n = let es = filter printable [1..n-1]
                         m  = last es
                      in mk es m (liftM2 (&&) (<m) printable)
