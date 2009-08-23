@@ -37,7 +37,8 @@ main = go Funge =<< getArgs
    go sty (x:xs)       =
       case maybeRead x of
            Just (n :: Integer) -> do
-              putStrLn . showAs sty . astOpt . runFungifier fungifyNeg $ n
+              let ast = astOpt . runFungifier fungify . abs $ n
+              putStrLn $ showNegAs sty n ast
               go sty xs
 
            Nothing -> do
@@ -47,10 +48,16 @@ main = go Funge =<< getArgs
 data AST i = Push i
            | Add (AST i) (AST i)
            | Mul (AST i) (AST i)
-           | Sub (AST i) (AST i)
  deriving Show
 
 data ShowStyle = RPN | Funge
+
+showNegAs :: Integral i => ShowStyle -> i -> AST i -> String
+showNegAs sty n = (if n >= 0 then id else showNeg sty) . showAs sty
+
+showNeg :: ShowStyle -> String -> String
+showNeg Funge s = concat  ["0", s, "-"]
+showNeg RPN   s = unwords ["0", s, "-"]
 
 showAs :: Integral i => ShowStyle -> AST i -> String
 showAs Funge = fungeOpt . fungeShow
@@ -64,12 +71,10 @@ fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
    c = toEnum . fromIntegral $ n
 
 fungeShow (Add a b) = concat [fungeShow a, fungeShow b, "+"]
-fungeShow (Sub a b) = concat [fungeShow a, fungeShow b, "-"]
 fungeShow (Mul a b) = concat [fungeShow a, fungeShow b, "*"]
 
 rpnShow (Push n)  = show n
 rpnShow (Add a b) = unwords [rpnShow a, rpnShow b, "+"]
-rpnShow (Sub a b) = unwords [rpnShow a, rpnShow b, "-"]
 rpnShow (Mul a b) = unwords [rpnShow a, rpnShow b, "*"]
 
 fungeOpt :: String -> String
@@ -105,11 +110,6 @@ astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
           (c', b') = compressMuls changed b
        in (or [changed, c, c'], Add a' b')
 
-   compressMuls changed (Sub a b) =
-      let (c,  a') = compressMuls changed a
-          (c', b') = compressMuls changed b
-       in (or [changed, c, c'], Sub a' b')
-
    compressMuls changed x@(Push _) = (changed, x)
 
    getMuls (Push n)  = [n]
@@ -133,8 +133,11 @@ astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
 
 type Fungifier i = i -> State (Map i (AST i)) (AST i)
 
-runFungifier :: Fungifier i -> i -> (AST i)
-runFungifier f n = evalState (f n) M.empty
+runFungifier :: Integral i => Fungifier i -> i -> (AST i)
+runFungifier f n =
+   if n < 0
+      then error "runFungifier :: negative"
+      else evalState (f n) M.empty
 
 fungified :: Integral i => i -> AST i -> State (Map i (AST i)) (AST i)
 fungified n s = do
@@ -145,12 +148,7 @@ fungified n s = do
            put $ M.insert n s m
            return s
 
-fungifyNeg, fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
-fungifyNeg n | n >= 0    = fungify n
-             | otherwise = do
-                f <- fungify (-n)
-                fungified n $ Sub (Push 0) f
-
+fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
 fungify n | isEasy n  = easyFungify n
           | otherwise = do
              s <- mapM f $ factors n
@@ -181,16 +179,15 @@ naiveFungifyWith f n
       let opts = [ findSum isTrivial nzEasies
                  , findSum isEasy    nzEasies
                  , case catMaybes . pMap (tryFacCount.(n-)) $ nzEasiesRev of
-                        [] -> Just . Left $ maxEasy
-                        xs -> Just . Left . fst $ maximumBy (comparing snd) xs
+                        [] -> Just maxEasy
+                        xs -> Just . fst $ maximumBy (comparing snd) xs
                  ]
 
-          (op,a,b) = case fromJust.fromJust . find isJust $ opts of
-                          Left  e -> (Add, f (n-e), f e)
-                          Right e -> (Sub, f (n+e), f e)
-      a' <- a
-      b' <- b
-      fungified n $ op a' b'
+          diff = fromJust.fromJust . find isJust $ opts
+
+      a <- f (n - diff)
+      b <- f diff
+      fungified n $ Add a b
 
  where
    tryFacCount x =
@@ -198,10 +195,7 @@ naiveFungifyWith f n
            Value v -> Just (x, v)
            _       -> Nothing
 
-   findSum p (e:es) | p (n+e)   = Just $ Right e
-                    | p (n-e)   = Just $ Left e
-                    | otherwise = findSum p es
-   findSum _ [] = Nothing
+   findSum p = find (p . (n-))
 
 easyFungify n = fungified n (Push n)
 
