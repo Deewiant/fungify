@@ -230,7 +230,10 @@ plainFactors n         = unsafePerformIO $ do
        waitForProcess pid
        return (map ((fromIntegral::Integer->i).read) . tail . words $ fs))
     `catch`
-      (\(_ :: SomeException) -> terminateProcess pid >> return undefined)
+      \(_ :: SomeException) -> do
+         terminateProcess pid
+         waitForProcess pid
+         return undefined
 
 factors :: (Integral i, Integral p) => i -> [(i,p)]
 factors = lengthGroup . plainFactors
