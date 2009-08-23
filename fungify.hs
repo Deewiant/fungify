@@ -1,18 +1,18 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternGuards, ScopedTypeVariables #-}
 
 import Control.Arrow               ((&&&), second)
 import Control.Concurrent          (forkIO)
 import Control.Concurrent.MVar     (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception           (catch, SomeException, evaluate)
 import Control.Parallel.Strategies (parMap, rwhnf)
-import Control.Monad               (liftM2, msum)
+import Control.Monad               (foldM_, liftM2, msum)
 import Control.Monad.Reader        (ReaderT, runReaderT, ask, asks)
 import Control.Monad.State.Strict  (State, get, put, evalState)
 import Control.Monad.Trans         (lift)
 import Data.Char                   (intToDigit, isLatin1, isPrint, isSpace)
 import Data.Function               (fix)
-import Data.List                   ( find, group, maximumBy, sort, (\\)
-                                   , genericLength )
+import Data.List                   ( find, group, sort, (\\)
+                                   , maximumBy, minimumBy, genericLength )
 import Data.List.Split             (chunk)
 import Data.Maybe                  (catMaybes, isJust, fromJust)
 import Data.Ord                    (comparing)
@@ -31,28 +31,41 @@ import Data.Map (Map)
 import Prelude hiding (catch)
 
 main :: IO ()
-main = go Funge Ascii =<< getArgs
+main = foldM_ f ([Funge], [Ascii], True) =<< getArgs
  where
-   go _   _    []            = return ()
-   go _   esId ("rpn"   :xs) = go RPN   esId   xs
-   go _   esId ("funge" :xs) = go Funge esId   xs
-   go sty _    ("ascii" :xs) = go sty   Ascii  xs
-   go sty _    ("latin1":xs) = go sty   Latin1 xs
-   go sty _    ("dec"   :xs) = go sty   Dec    xs
-   go sty _    ("hex"   :xs) = go sty   Hex    xs
-   go sty esId (x:xs)        =
-      case maybeRead x of
-           Just (n :: Integer) -> do
-              let numSet = getSet esId
-                  ast    = astOpt (esIsEasy numSet)
-                         . runFungifier fungify numSet
-                         . abs $ n
-              putStrLn $ showNegAs sty n ast
-              go sty esId xs
+   f opts@(styles,sets,best) s | Just n <- maybeRead s = do
 
-           Nothing -> do
-              hPutStrLn stderr $ concat ["Ignoring unknown arg '",x,"'"]
-              go sty esId xs
+      let asts = flip map sets $ \esId ->
+             let easySet = getSet esId
+              in astOpt (esIsEasy easySet)
+               . runFungifier fungify easySet
+               . abs $ (n :: Integer)
+
+          showeds = flip map styles $ \sty -> map (showNegAs sty n) asts
+
+      if best
+         then mapM_ (putStrLn . minimumBy (comparing length)) showeds
+         else mapM_ (mapM_ putStrLn) showeds
+
+      return opts
+
+   f opts ('+':s) = readOpt True  opts s
+   f opts s       = readOpt False opts s
+
+   readOpt add   (ss,es,b) "rpn"    = return (addOpt add RPN   ss,  es, b)
+   readOpt add   (ss,es,b) "funge"  = return (addOpt add Funge ss,  es, b)
+   readOpt add   (ss,es,b) "ascii"  = return (ss, addOpt add Ascii  es, b)
+   readOpt add   (ss,es,b) "latin1" = return (ss, addOpt add Latin1 es, b)
+   readOpt add   (ss,es,b) "hex"    = return (ss, addOpt add Hex    es, b)
+   readOpt add   (ss,es,b) "dec"    = return (ss, addOpt add Dec    es, b)
+   readOpt False (ss,es,b) "best"   = return (ss, es, True)
+   readOpt False (ss,es,b) "each"   = return (ss, es, False)
+   readOpt _ opts arg = do
+      hPutStrLn stderr $ concat ["Ignoring unrecognized option '", arg, "'"]
+      return opts
+
+   addOpt True  x xs = xs ++ [x]
+   addOpt False x _  =       [x]
 
 -- For GHCi
 simple, simpleOpt :: EasySetId -> Integer -> AST Integer
