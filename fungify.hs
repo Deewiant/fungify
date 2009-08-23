@@ -11,6 +11,7 @@ import Data.Char                   (intToDigit, isLatin1, isPrint, isSpace)
 import Data.Function               (fix)
 import Data.List                   ( find, group, maximumBy, sort, (\\)
                                    , genericLength )
+import Data.List.Split             (chunk)
 import Data.Maybe                  (catMaybes, isJust, fromJust)
 import Data.Ord                    (comparing)
 import System.Environment          (getArgs)
@@ -52,7 +53,7 @@ data AST i = Push i
 data ShowStyle = RPN | Funge
 
 showAs :: Integral i => ShowStyle -> AST i -> String
-showAs Funge = fungeShow
+showAs Funge = fungeOpt . fungeShow
 showAs RPN   = rpnShow
 
 fungeShow, rpnShow :: Integral i => AST i -> String
@@ -70,6 +71,19 @@ rpnShow (Push n)  = show n
 rpnShow (Add a b) = unwords [rpnShow a, rpnShow b, "+"]
 rpnShow (Sub a b) = unwords [rpnShow a, rpnShow b, "-"]
 rpnShow (Mul a b) = unwords [rpnShow a, rpnShow b, "*"]
+
+fungeOpt :: String -> String
+fungeOpt ('\'':c:xs) =
+   let cs = consecutiveChars xs
+       l  = length cs
+    in if l >= 2
+          then ('"' : c: cs) ++ ('"' : fungeOpt (drop (l*2) xs))
+          else '\'' : c : take 2 xs ++ fungeOpt (drop 2 xs)
+ where
+   consecutiveChars = map (head.tail) . takeWhile ((=='\'').head) . chunk 2
+
+fungeOpt (x:xs) = x : fungeOpt xs
+fungeOpt []     = []
 
 astOpt :: Integral i => AST i -> AST i
 astOpt = snd . until (not.fst) (compressMuls False . snd) . (,) True
