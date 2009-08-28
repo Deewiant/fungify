@@ -93,10 +93,10 @@ showNeg DC    s = showNeg RPN s
 
 showAs :: Integral i => ShowStyle -> AST i -> String
 showAs Funge = fungeOpt . fungeShow
-showAs RPN   = rpnShow
+showAs RPN   = fix rpnShowWith
 showAs DC    = dcShow
 
-fungeShow, rpnShow, dcShow :: Integral i => AST i -> String
+fungeShow, dcShow :: Integral i => AST i -> String
 fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
                    | isLatin1 c && isPrint c = ['\'', c]
                    | otherwise               = error "fungeShow :: bad Push"
@@ -107,13 +107,14 @@ fungeShow (Add a b)    = concat [fungeShow a, fungeShow b, "+"]
 fungeShow (Mul a b)    = concat [fungeShow a, fungeShow b, "*"]
 fungeShow (DupMul n a) = concat [fungeShow a, repC n ":", repC n "*"]
 
-rpnShow (Push n)     = show n
-rpnShow (Add a b)    = unwords [rpnShow a, rpnShow b, "+"]
-rpnShow (Mul a b)    = unwords [rpnShow a, rpnShow b, "*"]
-rpnShow (DupMul n a) = unwords [rpnShow a, repU n (rpnShow a), repU n "*"]
-
 dcShow (DupMul n a) = unwords [dcShow a, repU n "d", repU n "*"]
-dcShow x          = rpnShow x
+dcShow x            = rpnShowWith dcShow x
+
+rpnShowWith :: Integral i => (AST i -> String) -> AST i -> String
+rpnShowWith _ (Push n)     = show n
+rpnShowWith f (Add a b)    = unwords [f a, f b, "+"]
+rpnShowWith f (Mul a b)    = unwords [f a, f b, "*"]
+rpnShowWith f (DupMul n a) = unwords [f a, repU n (f a), repU n "*"]
 
 repC, repU :: Int -> String -> String
 repC n = concat  . replicate n
