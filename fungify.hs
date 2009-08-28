@@ -134,8 +134,18 @@ fungeOpt (x:xs) = x : fungeOpt xs
 fungeOpt []     = []
 
 astOpt :: Integral i => (i -> Bool) -> AST i -> AST i
-astOpt isEasy = fixPoint dup . compressMuls
+astOpt isEasy = expandDup . fixPoint dup . compressMuls
  where
+   -- (x^2)^2 is better than x^4
+   expandDup (DupMul n a)
+      | n > 1 && odd n  = expandDup . DupMul 1 $ DupMul (n `div` 2) a
+      | n > 2 && even n = Mul a . expandDup $ DupMul (n-1) a
+      | otherwise       = DupMul n (expandDup a)
+
+   expandDup (Mul a b)    = Mul (expandDup a) (expandDup b)
+   expandDup (Add a b)    = Add (expandDup a) (expandDup b)
+   expandDup x@(Push _)   = x
+
    dup (Mul (DupMul n a) b) | a =~= b = DupMul (n+1) (dup a)
    dup (Mul a (DupMul n b)) | a =~= b = DupMul (n+1) (dup a)
 
