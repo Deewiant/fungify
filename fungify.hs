@@ -78,7 +78,6 @@ data AST i = Push i
            | Mul (AST i) (AST i)
 
            -- Generated in post-processing in astOpt
-           | DupAdd !Int (AST i)
            | DupMul !Int (AST i)
  deriving (Eq, Show)
 
@@ -106,16 +105,13 @@ fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
 
 fungeShow (Add a b)    = concat [fungeShow a, fungeShow b, "+"]
 fungeShow (Mul a b)    = concat [fungeShow a, fungeShow b, "*"]
-fungeShow (DupAdd n a) = concat [fungeShow a, repC n ":", repC n "+"]
 fungeShow (DupMul n a) = concat [fungeShow a, repC n ":", repC n "*"]
 
 rpnShow (Push n)     = show n
 rpnShow (Add a b)    = unwords [rpnShow a, rpnShow b, "+"]
 rpnShow (Mul a b)    = unwords [rpnShow a, rpnShow b, "*"]
-rpnShow (DupAdd n a) = unwords [rpnShow a, repU n (rpnShow a), repU n "+"]
 rpnShow (DupMul n a) = unwords [rpnShow a, repU n (rpnShow a), repU n "*"]
 
-dcShow (DupAdd n a) = unwords [dcShow a, repU n "d", repU n "+"]
 dcShow (DupMul n a) = unwords [dcShow a, repU n "d", repU n "*"]
 dcShow x          = rpnShow x
 
@@ -139,12 +135,10 @@ fungeOpt []     = []
 astOpt :: Integral i => (i -> Bool) -> AST i -> AST i
 astOpt isEasy = fixPoint dup . compressMuls
  where
-   dup (Add (DupAdd n a) b) | a =~= b = DupAdd (n+1) (dup a)
-   dup (Add a (DupAdd n b)) | a =~= b = DupAdd (n+1) (dup a)
    dup (Mul (DupMul n a) b) | a =~= b = DupMul (n+1) (dup a)
    dup (Mul a (DupMul n b)) | a =~= b = DupMul (n+1) (dup a)
 
-   dup (Add a b) | a =~= b   = DupAdd 1 (dup a)
+   dup (Add a b) | a =~= b   = Mul (Push 2) (dup a)
                  | otherwise = Add (dup a) (dup b)
    dup (Mul a b) | a =~= b   = DupMul 1 (dup a)
                  | otherwise = Mul (dup a) (dup b)
@@ -169,7 +163,6 @@ astOpt isEasy = fixPoint dup . compressMuls
 
    compressMuls (Add a b)  = Add (compressMuls a) (compressMuls b)
    compressMuls x@(Push _) = x
-   compressMuls (DupAdd _ _) = error "compressMuls :: impossible DupAdd"
    compressMuls (DupMul _ _) = error "compressMuls :: impossible DupMul"
 
    getMuls (Push n)  = [n]
