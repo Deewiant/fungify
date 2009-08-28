@@ -59,8 +59,8 @@ main = foldM_ f ([Funge], [Ascii], True) =<< getArgs
    readOpt add   (ss,es,b) "latin1" = return (ss, addOpt add Latin1 es, b)
    readOpt add   (ss,es,b) "hex"    = return (ss, addOpt add Hex    es, b)
    readOpt add   (ss,es,b) "dec"    = return (ss, addOpt add Dec    es, b)
-   readOpt False (ss,es,b) "best"   = return (ss, es, True)
-   readOpt False (ss,es,b) "each"   = return (ss, es, False)
+   readOpt False (ss,es,_) "best"   = return (ss, es, True)
+   readOpt False (ss,es,_) "each"   = return (ss, es, False)
    readOpt _ opts arg = do
       hPutStrLn stderr $ concat ["Ignoring unrecognized option '", arg, "'"]
       return opts
