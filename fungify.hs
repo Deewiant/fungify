@@ -149,7 +149,7 @@ astOpt isEasy = expandDup . fixPoint dup . compressMuls
    dup (Mul (DupMul n a) b) | a =~= b = DupMul (n+1) (dup a)
    dup (Mul a (DupMul n b)) | a =~= b = DupMul (n+1) (dup a)
 
-   dup (Add a b) | a =~= b   = Mul (Push 2) (dup a)
+   dup (Add a b) | a =~= b   = dup $ Mul (Push 2) a
                  | otherwise = Add (dup a) (dup b)
    dup (Mul a b) | a =~= b   = DupMul 1 (dup a)
                  | otherwise = Mul (dup a) (dup b)
