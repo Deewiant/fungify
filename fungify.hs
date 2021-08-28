@@ -111,7 +111,7 @@ data AST i = Push i
 
 data ShowStyle = Funge | RPN | DC
 
-showNegAs :: Integral i => ShowStyle -> i -> AST i -> String
+showNegAs :: (Integral i, Show i) => ShowStyle -> i -> AST i -> String
 showNegAs sty n = (if n >= 0 then id else showNeg sty) . showAs sty
 
 showNeg :: ShowStyle -> String -> String
@@ -119,12 +119,12 @@ showNeg Funge s = concat  ["0", s, "-"]
 showNeg RPN   s = unwords ["0", s, "-"]
 showNeg DC    s = showNeg RPN s
 
-showAs :: Integral i => ShowStyle -> AST i -> String
+showAs :: (Integral i, Show i) => ShowStyle -> AST i -> String
 showAs Funge = fungeOpt . fungeShow
 showAs RPN   = fix rpnShowWith
 showAs DC    = dcShow
 
-fungeShow, dcShow :: Integral i => AST i -> String
+fungeShow, dcShow :: (Integral i, Show i) => AST i -> String
 fungeShow (Push n) | n < 16                  = [intToDigit $ fromIntegral n]
                    | isLatin1 c && isPrint c = ['\'', c]
                    | otherwise               = error "fungeShow :: bad Push"
@@ -138,7 +138,7 @@ fungeShow (DupMul n a) = concat [fungeShow a, repC n ":", repC n "*"]
 dcShow (DupMul n a) = unwords [dcShow a, repU n "d", repU n "*"]
 dcShow x            = rpnShowWith dcShow x
 
-rpnShowWith :: Integral i => (AST i -> String) -> AST i -> String
+rpnShowWith :: (Integral i, Show i) => (AST i -> String) -> AST i -> String
 rpnShowWith _ (Push n)     = show n
 rpnShowWith f (Add a b)    = unwords [f a, f b, "+"]
 rpnShowWith f (Mul a b)    = unwords [f a, f b, "*"]
@@ -276,7 +276,7 @@ fungified n s = lift $ do
            put $ M.insert n s m
            return s
 
-fungify, naiveFungify, easyFungify :: Integral i => Fungifier i
+fungify, naiveFungify, easyFungify :: (Integral i, Show i) => Fungifier i
 fungify n = asks esIsEasy >>= doIt
  where
    doIt isEasy | isEasy n  = easyFungify n
@@ -304,7 +304,7 @@ applySafeMuls maxEasy x@(factor,_) =
 
 naiveFungify = fix naiveFungifyWith
 
-naiveFungifyWith :: Integral i => Fungifier i -> Fungifier i
+naiveFungifyWith :: (Integral i, Show i) => Fungifier i -> Fungifier i
 naiveFungifyWith f n = do
    ES nzEasies nzEasiesRev maxEasy isEasies isEasy <- ask
    if isEasy n
@@ -341,7 +341,7 @@ safeLast' _ f xs = f (last xs)
 whileL :: (a -> Bool) -> (a -> a) -> a -> [a]
 whileL p f = takeWhile p . iterate f
 
-plainFactors :: forall i. Integral i => i -> [i]
+plainFactors :: forall i. (Integral i, Show i) => i -> [i]
 plainFactors 0         = [0]
 plainFactors n | n < 0 = -1 : plainFactors (-n)
 plainFactors n         = unsafePerformIO $ do
@@ -360,7 +360,7 @@ plainFactors n         = unsafePerformIO $ do
          waitForProcess pid
          return undefined
 
-factors :: (Integral i, Integral p) => i -> [(i,p)]
+factors :: (Integral i, Integral p, Show i) => i -> [(i,p)]
 factors = lengthGroup . plainFactors
 
 lengthGroup :: (Eq a, Integral l) => [a] -> [(a,l)]
